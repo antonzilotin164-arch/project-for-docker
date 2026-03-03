@@ -4,9 +4,15 @@ from base.initializationDriver import *
 from pathlib import Path
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 import logging
+import time
+import requests
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='myapp.log', level=logging.INFO)
+
+
 class ImagePage():
     def __init__(self, driver):
         self.driver = driver
@@ -53,10 +59,8 @@ class ImagePage():
         input_field_is_active = wait_element(self.driver, LocatorsImagePage.descriptions_field, timeout=10)
         css_style_border_color = input_field_is_active.value_of_css_property("border-color")
 
-        #Отладочный вывод
         logger.info(f"Фактический цвет границы: '{css_style_border_color}'")
 
-        #Разные возможные форматы цвета
         expected_colors = ["#e253dd", "rgb(226, 83, 221)", "rgba(226, 83, 221, 1)"]
 
         if css_style_border_color in expected_colors:
@@ -81,10 +85,12 @@ class ImagePage():
             logger.info(f"Ошибка!: '{actual_value}', ожидалось: '{search_value}'")
             return False
 
-    # МЕТОДЫ СКАЧИВАНИЯ
     def click_button_generate_image(self, locator):
-        button_generate_image = wait_element(self.driver, locator, timeout=5)
-        button_generate_image.click()
+        """Клик по кнопке генерации через JavaScript (чтобы избежать перекрытия)"""
+        button_generate_image = wait_element(self.driver, locator, timeout=10)
+        time.sleep(0.5)  # небольшая пауза для стабильности
+        self.driver.execute_script("arguments[0].click();", button_generate_image)
+        logger.info("Клик по кнопке генерации выполнен через JavaScript")
 
     def check_click_button_generate_image(self):
         generate_button = wait_element(self.driver, LocatorsImagePage.button_generate_image, timeout=10)
@@ -106,58 +112,49 @@ class ImagePage():
             logger.info("Генерация изображения провалилась")
             return False
 
-    def click_download_button(self):
-        """Нажимает кнопку Скачать с ожиданием и скроллом"""
+    def download_image_via_http(self, save_dir=None):
+        """Скачиваем изображение напрямую через HTTP, используя ссылку из тега img"""
 
-        # Ждем пока элемент станет кликабельным
-        download_element = WebDriverWait(self.driver, 300).until(
-            EC.element_to_be_clickable(LocatorsImagePage.download_button_complet)
+        # Ждем появления изображения
+        WebDriverWait(self.driver, 300).until(
+            EC.presence_of_element_located((By.ID, "resultImage"))
         )
 
-        # Скроллим к элементу
-        self.driver.execute_script("arguments[0].scrollIntoView(true);", download_element)
-        time.sleep(1)
+        # Получаем URL изображения из src
+        img_element = self.driver.find_element(By.ID, "resultImage")
+        img_url = img_element.get_attribute('src')
 
-        # Пробуем кликнуть через JavaScript
-        self.driver.execute_script("arguments[0].click();", download_element)
+        if not img_url:
+            raise Exception("Не удалось получить ссылку на изображение")
 
-    def handle_save_dialog(self):
-        """Закрывает системный диалог 'Сохранить как'"""
-        import pyautogui
-        time.sleep(2)
-        pyautogui.press('enter')
+        # Определяем директорию для сохранения
+        if save_dir is None:
+            save_dir = Path(__file__).parent.parent / "downloads"
+        save_dir = Path(save_dir)
 
-    def wait_for_download_complete(self, timeout=10):
-        downloads_dir = Path.home() / "Downloads"
-        target_dir = Path(__file__).parent.parent / "downloads"
-        target_dir.mkdir(exist_ok=True)
+        # Папка должна существовать (создается в initialization)
+        if not save_dir.exists():
+            save_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Ищем файлы в: {downloads_dir}")
+        # Формируем имя файла
+        file_name = f"image_{int(time.time())}.jpg"
+        file_path = save_dir / file_name
 
-        def _check_and_move_file():
-            current_files = list(downloads_dir.glob("*"))
-            logger.info(f"Найдено файлов: {len(current_files)}")
+        # Скачиваем файл
+        response = requests.get(img_url, timeout=30)
+        response.raise_for_status()
 
-            completed_files = [f for f in current_files
-                               if not f.name.endswith(('.crdownload', '.tmp', '.part'))]
-            logger.info(f"Завершенные файлы: {[f.name for f in completed_files]}")
+        # Сохраняем
+        with open(file_path, 'wb') as f:
+            f.write(response.content)
 
-            image_files = [f for f in completed_files
-                           if f.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']]
-            logger.info(f"Картинки: {[f.name for f in image_files]}")
+        # Проверяем что файл скачался и не ноль
+        if not file_path.exists():
+            raise Exception(f"Файл не был создан: {file_path}")
 
-            if image_files:
-                newest_file = max(image_files, key=lambda f: f.stat().st_ctime)
-                logger.info(f"Найдена картинка: {newest_file.name}")
+        file_size = file_path.stat().st_size
+        if file_size == 0:
+            raise Exception(f"Файл скачался пустой (0 байт): {file_path}")
 
-                target_file = target_dir / newest_file.name
-                newest_file.rename(target_file)
-                return target_file
-            return None
-
-        wait = WebDriverWait(self.driver, timeout, poll_frequency=1)
-        downloaded_file = wait.until(
-            lambda driver: _check_and_move_file(),
-            message="Скачивание картинки не завершилось"
-        )
-        return downloaded_file
+        logger.info(f"✅ Изображение сохранено: {file_path}, размер: {file_size} байт")
+        return file_path

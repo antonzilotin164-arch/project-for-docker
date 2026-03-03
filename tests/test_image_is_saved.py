@@ -143,35 +143,53 @@ def test_start_generation(browser_session):
 @allure.feature("Image generation page")
 @allure.story("Генерация и скачивание изображения")
 @allure.tag("e2e")
-@allure.title("Проверка успешной генерации и скачивания изображения")
+@allure.title("Проверка успешной генерации и скачивания изображения через HTTP")
 def test_check_file_download_successful(browser_session_with_download):
-    with allure.step("Переход на ресурс генерации изображения, создание папки для скачивания"):
+    with allure.step("Получение driver, страницы и директории для скачивания"):
         driver, generate_image_page, download_dir = browser_session_with_download
         print(f"Папка для скачивания: {download_dir}")
 
-    with allure.step("Переход на модель FLUX.1 [pro]"):
+    with allure.step("Проверка текущего URL"):
+        generate_image_page.check_current_url()
+
+    with allure.step("Проверка модели генерации по умолчанию"):
+        generate_image_page.check_current_model_generate()
+
+    with allure.step("Выбор модели FLUX.1 [pro]"):
         generate_image_page.select_model_generate()
 
-    with allure.step("Клик по полю ввода"):
+    with allure.step("Проверка, что модель выбрана"):
+        generate_image_page.check_selected_model()
+
+    with allure.step("Клик по полю ввода описания"):
         generate_image_page.click_descriptions_field()
 
-    with allure.step("Ввод запроса на генерацию изображения"):
+    with allure.step("Проверка, что поле ввода активно"):
+        generate_image_page.check_input_field_is_active()
+
+    with allure.step(f"Ввод запроса на генерацию изображения: {request}"):
         generate_image_page.input_descriptions_query()
+
+    with allure.step("Проверка, что текст введен корректно"):
+        generate_image_page.check_value(request, LocatorsImagePage.descriptions_field)
 
     with allure.step("Клик по кнопке 'Сгенерировать изображение'"):
         generate_image_page.click_button_generate_image(LocatorsImagePage.button_generate_image)
 
-    with allure.step("Нажатие кнопки скачивания"):
-        generate_image_page.click_download_button()
+    with allure.step("Проверка, что кнопка заблокирована (начало генерации)"):
+        generate_image_page.check_click_button_generate_image()
 
-    with allure.step("Обработка системного диалога"):
-        generate_image_page.handle_save_dialog()
+    with allure.step("Проверка, что генерация началась (появление индикатора загрузки)"):
+        generate_image_page.check_start_generation()
 
-    with allure.step("Ожидание завершения скачивания"):
-        downloaded_file = generate_image_page.wait_for_download_complete()
+    with allure.step("Скачивание изображения через HTTP"):
+        downloaded_file = generate_image_page.download_image_via_http(save_dir=download_dir)
 
-    with allure.step("Проверка успешного скачивания файла"):
-        assert downloaded_file
+    with allure.step("Проверка, что файл существует"):
+        assert downloaded_file.exists()
+
+    with allure.step("Проверка, что файл не пустой"):
+        assert downloaded_file.stat().st_size > 0
 
 
 

@@ -1,8 +1,6 @@
 from selenium import webdriver
 from selenium.common import TimeoutException
-from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.wait import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support import expected_conditions as EC
 import unittest
 import urllib.parse
@@ -17,22 +15,21 @@ def initialization(url, download_dir=None, return_tuple=False):
     # ДОБАВЛЕННЫЕ СТРОКИ ДЛЯ HEADLESS РЕЖИМА (ВАЖНО ДЛЯ JENKINS):
     options.add_argument("--headless=new")  # Режим без экрана
     options.add_argument("--no-sandbox")  # ОБЯЗАТЕЛЬНО для CI/Jenkins
-    options.add_argument("--disable-dev-shm-usage")  # Решает проблему с памятью
+    options.add_argument("--disable-dev-shm-usage")  # Решает проблему с памяти
 
     # Базовые опции
     options.add_argument("--incognito")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--start-maximized")
     options.add_argument("--log-level=3")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-infobars")
     options.add_argument("--disable-notifications")
     options.add_argument('ignore-certificate-errors')
-    # РЕКОМЕНДУЮ ДОБАВИТЬ ДЛЯ HEADLESS:
+
     options.add_argument("--disable-gpu")  # Для стабильности
     options.add_argument("--window-size=1920,1080")  # Чтобы был конкретный размер
 
-    # НАСТРОЙКИ СКАЧИВАНИЯ - ТАК РАБОТАЕТ
+
     if download_dir is None:
         download_dir = Path(__file__).parent.parent / "downloads"
 
@@ -52,8 +49,20 @@ def initialization(url, download_dir=None, return_tuple=False):
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
 
-    # Инициализация драйвера
-    driver = webdriver.Chrome(options=options, service=ChromeService(ChromeDriverManager().install()))
+
+    # Добавляем параметры для Selenoid прямо в объект options
+    options.set_capability('selenoid:options', {
+        'enableVNC': False,
+        'enableVideo': False,
+        'browserVersion': 'latest'
+    })
+
+    # Подключаемся к Selenoid на localhost:4444, передавая options
+    driver = webdriver.Remote(
+        command_executor='http://localhost:4444/wd/hub',
+        options=options
+    )
+
 
     # Убираем webdriver флаг
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
